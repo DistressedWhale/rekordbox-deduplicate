@@ -2,8 +2,7 @@
 
 # show_config()
 
-import inspect
-import warnings
+import inspect, json, warnings
 from pyrekordbox import Rekordbox6Database
 
 def print_strings(obj, indent=0, visited=None, file=None):
@@ -65,10 +64,30 @@ def print_strings(obj, indent=0, visited=None, file=None):
 
 db = Rekordbox6Database()
 
+content_list = []
+
 for content in db.get_content():
     with open("output.txt", "w", encoding="utf-8") as f:
         print_strings(content, file=f)
-        exit(1)
+        content_list.append({
+            "ID": content.ID,
+            "created_at": content.created_at,
+            "Title": content.Title,
+            "AlbumID": content.AlbumID,
+            "AlbumName": content.AlbumName,
+            "ArtistName": content.ArtistName,
+            "ArtistID": content.ArtistID,
+            "DateCreated": content.DateCreated,
+            "FolderPath": content.FolderPath
+        })
+
+with open("output.json", "w") as f:
+    json.dump(content_list, f)
+
+
+
+
+
 
 
 # playlist = db.get_playlist()[0]
