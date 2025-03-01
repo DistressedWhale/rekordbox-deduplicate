@@ -1,0 +1,185 @@
+ActiveCensors:
+Album: <DjmdAlbum(323568890  Name=The Sound of Drum & Bass 2016 (Viper Presents))>
+AlbumArtist:
+AlbumArtistName:
+AlbumID: 323568890
+AlbumName: The Sound of Drum & Bass 2016 (Viper Presents)
+Analysed: 105
+AnalysisDataPath: /PIONEER/USBANLZ/19d/513be-a9e7-4a60-a0fe-7a51377575ae/ANLZ0000.DAT
+AnalysisUpdated: 7
+Artist: <DjmdArtist(1619422435 Name=NCT, Franky Nuts)>
+ArtistID: 1619422435
+ArtistName: NCT, Franky Nuts
+BPM:
+  denominator:
+    denominator:
+    imag: 0
+    numerator:
+    real:
+  imag: 0
+  numerator:
+  real:
+BitDepth:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+BitRate:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+Color:
+ColorID: 0
+ColorName:
+Commnt: 
+Composer:
+ComposerID:
+ComposerName:
+ContentLink:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+CueUpdated: 15
+Cues: [<DjmdCue(448847107)>, <DjmdCue(1983264145)>, <DjmdCue(846187472)>]
+DJPlayCount:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+DateCreated: 2024-02-01
+DeliveryComment: 
+DeliveryControl: on
+DeviceID: df5b22bc-676f-4946-bab8-ddbf641b4aae
+DisableQuantize:
+DiscNo:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+ExtInfo: null
+FileNameL: NCT, Franky Nuts - Looking Forward.mp3
+FileNameS: 
+FileSize:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+FileType:
+FolderPath: H:/Music/Main Library/MP3/NCT, Franky Nuts - Looking Forward.mp3
+Genre: <DjmdGenre(1909525332 Name=chillstep)>
+GenreID: 1909525332
+GenreName: chillstep
+HotCueAutoLoad: on
+ID: 177515597
+ISRC: 
+ImagePath: /PIONEER/Artwork/19d/513be-a9e7-4a60-a0fe-7a51377575ae/artwork.jpg
+Key: <DjmdKey(20264113 Name=11A)>
+KeyID: 20264113
+KeyName: 11A
+Label:
+LabelID:
+LabelName:
+Length:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+LyricStatus:
+Lyricist: 
+MasterDBID: 4255204406
+MasterSongID: 177515597
+MixerParams: [<DjmdMixerParam(c5da8f9f-4083-476f-8816-de16a08c42b4)>]
+ModifiedByRBM: 
+MyTagIDs: ['2442033910']
+MyTagNames: ['Neuro']
+MyTags: [<DjmdSongMyTag(590b48cc-6825-4b67-9cbc-5396ce62fed5)>]
+OrgArtist:
+OrgArtistID:
+OrgArtistName:
+OrgFolderPath: 
+Rating:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+ReleaseDate: 
+ReleaseYear:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+Remixer:
+RemixerID:
+RemixerName:
+Reserved1: 
+Reserved2:
+Reserved3:
+Reserved4:
+SampleRate:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+SamplerGain:
+  imag: 0.0
+  real:
+SamplerPlayOffset:
+SamplerTrackInfo:
+SearchStr:
+ServiceID:
+SrcAlbumName:
+SrcArtistName:
+SrcID:
+SrcLength:
+SrcTitle:
+StockDate: 2024-02-01
+Subtitle: 
+Tag:
+Title: Looking Forward
+TrackInfoUpdated: 13
+TrackNo:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+UUID: 19d513be-a9e7-4a60-a0fe-7a51377575ae
+VideoAssociate: 0
+created_at: 2024-02-01 17:05:33.097000
+metadata:
+  create_drop_stringify_dialect: default
+  dispatch:
+    after_create:
+    after_drop:
+    after_parent_attach:
+    before_create:
+    before_drop:
+    before_parent_attach:
+    column_reflect:
+  info:
+  naming_convention:
+    ix: 
+      ix_%(column_0_label)s
+  schema:
+  sorted_tables:
+  tables:
+    agentRegistry: 
+    cloudAgentRegistry: 
+rb_LocalFolderPath:
+rb_data_status:
+rb_file_id: 3096224743904652
+rb_local_data_status:
+rb_local_deleted:
+rb_local_synced:
+rb_local_usn:
+  denominator:
+  imag: 0
+  numerator:
+  real:
+registry:
+  mappers:
+  metadata:
+  type_annotation_map:
+updated_at: 2024-12-25 17:18:38.786000
+usn:
