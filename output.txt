@@ -1,15 +1,15 @@
 ActiveCensors:
-Album: <DjmdAlbum(323568890  Name=The Sound of Drum & Bass 2016 (Viper Presents))>
+Album: <DjmdAlbum(435493073  Name=Untiefer)>
 AlbumArtist:
 AlbumArtistName:
-AlbumID: 323568890
-AlbumName: The Sound of Drum & Bass 2016 (Viper Presents)
+AlbumID: 435493073
+AlbumName: Untiefer
 Analysed: 105
-AnalysisDataPath: /PIONEER/USBANLZ/19d/513be-a9e7-4a60-a0fe-7a51377575ae/ANLZ0000.DAT
-AnalysisUpdated: 7
-Artist: <DjmdArtist(1619422435 Name=NCT, Franky Nuts)>
-ArtistID: 1619422435
-ArtistName: NCT, Franky Nuts
+AnalysisDataPath: /PIONEER/USBANLZ/a12/3f2d0-7a6d-45e1-9118-b1f74683407d/ANLZ0000.DAT
+AnalysisUpdated: 1
+Artist: <DjmdArtist(1868457844 Name=Tom Finster & Lukher)>
+ArtistID: 1868457844
+ArtistName: Tom Finster & Lukher
 BPM:
   denominator:
     denominator:
@@ -41,25 +41,17 @@ ContentLink:
   imag: 0
   numerator:
   real:
-CueUpdated: 15
-Cues: [<DjmdCue(448847107)>, <DjmdCue(1983264145)>, <DjmdCue(846187472)>]
+CueUpdated:
+Cues: []
 DJPlayCount:
-  denominator:
-  imag: 0
-  numerator:
-  real:
-DateCreated: 2024-02-01
+DateCreated: 2025-02-18
 DeliveryComment: 
 DeliveryControl: on
 DeviceID: df5b22bc-676f-4946-bab8-ddbf641b4aae
 DisableQuantize:
 DiscNo:
-  denominator:
-  imag: 0
-  numerator:
-  real:
 ExtInfo: null
-FileNameL: NCT, Franky Nuts - Looking Forward.mp3
+FileNameL: 02. Tom Finster & Lukher - No Compromise (Lukher Remix).flac
 FileNameS: 
 FileSize:
   denominator:
@@ -67,20 +59,62 @@ FileSize:
   numerator:
   real:
 FileType:
-FolderPath: H:/Music/Main Library/MP3/NCT, Franky Nuts - Looking Forward.mp3
-Genre: <DjmdGenre(1909525332 Name=chillstep)>
-GenreID: 1909525332
-GenreName: chillstep
+  denominator:
+  imag: 0
+  numerator:
+  real:
+FolderPath: H:/Music/Main Library/Soulseek/02. Tom Finster & Lukher - No Compromise (Lukher Remix).flac
+Genre: <DjmdGenre(54013335 Name=Dance)>
+GenreID: 54013335
+GenreName: Dance
 HotCueAutoLoad: on
-ID: 177515597
-ISRC: 
-ImagePath: /PIONEER/Artwork/19d/513be-a9e7-4a60-a0fe-7a51377575ae/artwork.jpg
-Key: <DjmdKey(20264113 Name=11A)>
-KeyID: 20264113
-KeyName: 11A
+ID: 70314271
+ISRC: GB2LD2410313
+ImagePath: /PIONEER/Artwork/a12/3f2d0-7a6d-45e1-9118-b1f74683407d/artwork.jpg
+Key: <DjmdKey(190054831 Name=8A)>
+KeyID: 190054831
+KeyName: 8A
 Label:
-LabelID:
-LabelName:
+  ID: 4277291645
+  Name: Pilot.
+  UUID: acf39c7b-c5c7-4b2c-b209-580b97871c37
+  created_at: 2024-12-29 18:07:17.798000
+  metadata:
+    create_drop_stringify_dialect: default
+    dispatch:
+      after_create:
+      after_drop:
+      after_parent_attach:
+      before_create:
+      before_drop:
+      before_parent_attach:
+      column_reflect:
+    info:
+    naming_convention:
+      ix: 
+        ix_%(column_0_label)s
+    schema:
+    sorted_tables:
+    tables:
+      agentRegistry: 
+      cloudAgentRegistry: 
+  rb_data_status:
+  rb_local_data_status:
+  rb_local_deleted:
+  rb_local_synced:
+  rb_local_usn:
+    denominator:
+    imag: 0
+    numerator:
+    real:
+  registry:
+    mappers:
+    metadata:
+    type_annotation_map:
+  updated_at: 2024-12-29 18:07:17.798000
+  usn:
+LabelID: 4277291645
+LabelName: Pilot.
 Length:
   denominator:
   imag: 0
@@ -89,21 +123,17 @@ Length:
 LyricStatus:
 Lyricist: 
 MasterDBID: 4255204406
-MasterSongID: 177515597
-MixerParams: [<DjmdMixerParam(c5da8f9f-4083-476f-8816-de16a08c42b4)>]
+MasterSongID: 70314271
+MixerParams: [<DjmdMixerParam(68cdbc22-e932-4fea-a7a1-9c386fe4d29c)>]
 ModifiedByRBM: 
-MyTagIDs: ['2442033910']
-MyTagNames: ['Neuro']
-MyTags: [<DjmdSongMyTag(590b48cc-6825-4b67-9cbc-5396ce62fed5)>]
+MyTagIDs: []
+MyTagNames: []
+MyTags: []
 OrgArtist:
 OrgArtistID:
 OrgArtistName:
 OrgFolderPath: 
 Rating:
-  denominator:
-  imag: 0
-  numerator:
-  real:
 ReleaseDate: 
 ReleaseYear:
   denominator:
@@ -134,41 +164,23 @@ SrcArtistName:
 SrcID:
 SrcLength:
 SrcTitle:
-StockDate: 2024-02-01
+StockDate: 2025-02-27
 Subtitle: 
 Tag:
-Title: Looking Forward
-TrackInfoUpdated: 13
+Title: No Compromise (Lukher Remix)
+TrackInfoUpdated: 2
 TrackNo:
   denominator:
   imag: 0
   numerator:
   real:
-UUID: 19d513be-a9e7-4a60-a0fe-7a51377575ae
+UUID: a123f2d0-7a6d-45e1-9118-b1f74683407d
 VideoAssociate: 0
-created_at: 2024-02-01 17:05:33.097000
+created_at: 2025-02-27 02:01:53.758000
 metadata:
-  create_drop_stringify_dialect: default
-  dispatch:
-    after_create:
-    after_drop:
-    after_parent_attach:
-    before_create:
-    before_drop:
-    before_parent_attach:
-    column_reflect:
-  info:
-  naming_convention:
-    ix: 
-      ix_%(column_0_label)s
-  schema:
-  sorted_tables:
-  tables:
-    agentRegistry: 
-    cloudAgentRegistry: 
 rb_LocalFolderPath:
 rb_data_status:
-rb_file_id: 3096224743904652
+rb_file_id: 5629499534250235
 rb_local_data_status:
 rb_local_deleted:
 rb_local_synced:
@@ -178,8 +190,5 @@ rb_local_usn:
   numerator:
   real:
 registry:
-  mappers:
-  metadata:
-  type_annotation_map:
-updated_at: 2024-12-25 17:18:38.786000
+updated_at: 2025-02-27 02:01:55.807000
 usn:
