@@ -2,74 +2,109 @@
 
 # show_config()
 
-import inspect, json, warnings, itertools
+import inspect, json, warnings, itertools, sys
 from pyrekordbox import Rekordbox6Database
 from datetime import datetime
+from pyrekordbox.db6 import tables
+from pathlib import Path
+import shutil
+from sqlalchemy.engine.row import Row
+import os
 
-# Replace all occurrences of a song in a playlist with another song
-def replace_songs(playlist_id, song_id1, song_id2):
+def remove_songs(idlist):
+    print(f"Preparing to remove {len(idlist)} songs from Rekordbox DB")
+
     db = Rekordbox6Database()
 
-    print(f"Processing playlist {db.get_playlist(ID=playlist_id).Name} (ID: {playlist_id})")
+    session = db.query(tables.DjmdContent).filter(tables.DjmdContent.ID.in_(idlist)).delete(synchronize_session=False)
 
-    replacement_song = db.get_content(ID=song_id2)
+    print(f"{session} rows updated")
+
+    db.commit()
     
-    id_list = [int(getattr(x.Content, "ID", "-1")) for x in db.get_playlist(ID=playlist_id).Songs]
+def get_filepaths(idlist):
+    print("Retrieving filepaths of songs to be deleted")
 
-    print(id_list)
+    db = Rekordbox6Database()
 
-    while song_id1 in id_list:
-        replaced = False
-        print(f"Found {id_list.count(song_id1)} matching SongPlaylist objects")
-        playlist = db.get_playlist(ID=playlist_id)
+    filepathlist = db.query(tables.DjmdContent.FolderPath).filter(tables.DjmdContent.ID.in_(idlist)).all()
 
-        songplaylists = playlist.Songs
-        for songplaylist in songplaylists:
+    flattened = [tuple(row) if isinstance(row, Row) else (row,) for sublist in filepathlist for row in sublist]
+
+    flatlist = list(sum(flattened, ()))
+
+    print(f"Found {len(flatlist)} filepaths")
+
+    return flatlist
+
+def move_files_and_export_to_json(file_paths, destination_folder, json_file_path="destination_files.json"):
+    # Check if file_paths is None or not a list
+    if file_paths is None or not isinstance(file_paths, list):
+        print("Error: file_paths is None or not a list.")
+        return
+
+    # Ensure the destination folder exists
+    Path(destination_folder).mkdir(parents=True, exist_ok=True)
+
+    # List to store successfully moved file paths
+    moved_files = []
+
+    for file_path in file_paths:
+        try:
+            # Define the destination path
+            original_filename = os.path.basename(file_path)
+            destination_path = os.path.join(destination_folder, original_filename)
             
-            song = songplaylist.Content
-            song_id = song.ID
-
-            #Skip past non-matching songs
-            if replaced or str(song_id) != str(song_id1):
-                continue
-            else:
-                location = songplaylist.TrackNo
-
-                print(f"\tReplacing {song.Title}, position {location} with {replacement_song.Title}")
-
-                db.add_to_playlist(playlist, replacement_song, track_no=location)
-
-
-                
-
-                
-                #Update list of IDs for next loop
-                id_list = [int(getattr(x.Content, "ID", "-1")) for x in db.get_playlist(ID=playlist_id).Songs]
+            # Check if the file already exists at the destination
+            counter = 1
+            while os.path.exists(destination_path):
+                # Create a new filename by appending a counter
+                name, extension = os.path.splitext(original_filename)
+                destination_path = os.path.join(destination_folder, f"{name} ({counter}){extension}")
+                counter += 1
+            
+            # Move the file to the destination folder
+            shutil.move(file_path, destination_path)
+            moved_files.append(destination_path)  # Add moved file to the list
+            print(f"Moved: {file_path} to {destination_path}")
         
-    db.close()
+        except FileNotFoundError:
+            print(f"File not found: {file_path}")
+        except Exception as e:
+            print(f"Error moving {file_path}: {e}")
+
+    # Output the moved file paths to a JSON file
+    with open(json_file_path, 'w') as json_file:
+        json.dump(moved_files, json_file, indent=4)
+        print(f"Exported moved file paths to {json_file_path}")
+
+
+# Replace all occurrences of a song in a playlist with another song
+def replace_songs(best_songs):
+    db = Rekordbox6Database()
     
+    for mapping in best_songs:
+        for new_song_id, old_song_ids in mapping.items():
+            # Convert key from string to integer
+            new_song_id = int(new_song_id)
 
-# def get_song_by_id(inp_id):
-#     db = Rekordbox6Database()
+            # Update rows where SongID is in the list of old_song_ids
+            session = db.query(tables.DjmdSongPlaylist)\
+                        .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
+                        .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
 
-#     dbcontent = db.get_content()
+    # Commit the changes
+    db.commit()
 
-#     for index, content in enumerate(dbcontent):
-#         if content.ID == str(inp_id):
-#             return content
+    print(f"{session} rows updated")
 
-# def get_playlist_by_id(inp_id):
-#     db = Rekordbox6Database()
-
-#     dbcontent = db.get_playlist()
-
-#     for index, content in enumerate(dbcontent):
-#         if content.ID == str(inp_id):
-#             return content
+    # Close the session
+    db.close()
+    print("Committed to Rekordbox DB")
     
 
 def index_to_id(index, li):
-    return li[index].ID
+    return int(li[index]["ID"])
 
 
 def transpose_dicts(list_of_dicts):
@@ -209,25 +244,27 @@ def dump_song_data():
 
     for index, content in enumerate(dbcontent):
 
-        with open("song_dump.yaml", "w", encoding="utf-8") as f:
-            dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed"})
+        if "--dump" in sys.argv:
+            with open("song_dump.yaml", "w", encoding="utf-8") as f:
+                dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTags", "MyTagIDs", "MyTagNames", "Artist", "Genre", "Key", "Album", "Analysed"})
+        json_formatted = {
+            "ID": content.ID,
+            "index": index,
+            "created_at": str(content.created_at),
+            "Title": content.Title,
+            "AlbumID": content.AlbumID,
+            "AlbumName": content.AlbumName,
+            "ArtistName": content.ArtistName,
+            "ArtistID": content.ArtistID,
+            "FolderPath": content.FolderPath,
+            "BPM": content.BPM,
+            "BitRate": content.BitRate,
+            "FullName": f"{content.ArtistName} - {content.Title}",
+            "MyTagIDs": list(content.MyTagIDs),
+            "MyTagNames": list(content.MyTagNames)
+        }
 
-            json_formatted = {
-                "ID": content.ID,
-                "index": index,
-                "created_at": str(content.created_at),
-                "Title": content.Title,
-                "AlbumID": content.AlbumID,
-                "AlbumName": content.AlbumName,
-                "ArtistName": content.ArtistName,
-                "ArtistID": content.ArtistID,
-                "FolderPath": content.FolderPath,
-                "BPM": content.BPM,
-                "BitRate": content.BitRate,
-                "FullName": f"{content.ArtistName} - {content.Title}"
-            }
-
-            content_list.append(json_formatted)
+        content_list.append(json_formatted)
 
     with open("song_data.json", "w") as f:
         json.dump(content_list, f, indent=4)
@@ -242,19 +279,20 @@ def dump_playlist_data():
     content_list = []
 
     for index, content in enumerate(dbcontent):
+        
+        if "--dump" in sys.argv:
+            with open("playlist_data.yaml", "w", encoding="utf-8") as f:
+                dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
 
-        with open("playlist_data.yaml", "w", encoding="utf-8") as f:
-            dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
+        json_formatted = {
+            "ID": content["ID"],
+            "index": index,
+            "Name": content.Name,
+            "Attribute": content.Attribute,
+            "SongIDs": [getattr(x.Content, "ID", "No ID") for x in content.Songs]
+        }
 
-            json_formatted = {
-                "ID": content["ID"],
-                "index": index,
-                "Name": content.Name,
-                "Attribute": content.Attribute,
-                "SongIDs": [getattr(x.Content, "ID", "No ID") for x in content.Songs]
-            }
-
-            content_list.append(json_formatted)
+        content_list.append(json_formatted)
 
     with open("playlist_data.json", "w") as f:
         json.dump(content_list, f, indent=4)
@@ -286,6 +324,10 @@ def deduplicate(content_list, non_unique_indexes):
         
         songs_transposed = transpose_dicts(songs)
 
+        # #Create merged My Tag for later
+        # merged_my_tag_ids = list(sum(songs_transposed["MyTagIDs"], ()))
+        # merged_my_tag_ids = list(sum(songs_transposed["MyTagNames"], ()))
+
         #Evaluate based on bitrate
         bitrates = songs_transposed["BitRate"]
         if not all_equal(bitrates):
@@ -300,6 +342,9 @@ def deduplicate(content_list, non_unique_indexes):
             # print(best_index)
 
             continue
+
+        #Evaluate if there is a my tag
+
 
         #Evaluate if imported from an external device
         imported_bools = ["/Imported from Device/" in x for x in songs_transposed["FolderPath"]]
@@ -340,15 +385,22 @@ def deduplicate(content_list, non_unique_indexes):
         stats["first_index"] += 1
  
     print(stats)
-    # print(best_indexes)
 
-    best_songs = [{str(non_unique_indexes[i][index]) : non_unique_indexes[i]} for i, index in enumerate(best_indexes)]
+    #Construct list of dicts at the end
+    best_songs = [{index_to_id(non_unique_indexes[i][index], content_list) : list(map(lambda a: index_to_id(a, content_list), non_unique_indexes[i]))} for i, index in enumerate(best_indexes)]
 
-    return best_songs
+    cleaned_data = [{key: [v for v in values if v != key]} for d in best_songs for key, values in d.items()]
+
+    if "--dump" in sys.argv:
+        print(cleaned_data)
+
+    return cleaned_data
 
 if __name__ == "__main__":
     #Get song data in a useful format
+    print("Retrieving song data...")
     content_list = dump_song_data()
+    print("Song data dumped to song_data.json")
 
     #Transpose list to assist with searching/filtering by attributes
     transposed_list = transpose_dicts(content_list)
@@ -362,15 +414,45 @@ if __name__ == "__main__":
     #Return a list of dicts with the best item as the index 
     # [ {'46': [46, 1528]}, {'68': [68, 1503]}, {'97': [97, 1567, 1606]}, {'130': [130, 1508]}, {'135': [135, 1247]}, {'137': [137, 671]} ]
     best_songs = deduplicate(content_list, non_unique_indexes)
+
+    if "--dump" in sys.argv:
+        with open("best_ids.json", "w", encoding="utf-8") as f:
+            json.dump(best_songs, f, indent=4)
+                
     # print(best_songs)
 
     # input("\nWould you like to proceed with deduplication? Use Ctrl+C to exit if not\n>>> ")
 
     #Retrieve playlists 
-    dump_playlist_data()   
-    
+    dump_playlist_data()  
 
     #Apply the changes to the database - replacing songs in playlists as needed
+    replace_songs(best_songs) 
+    
+    #Get a list of IDs of songs to remove
+    remove_songs_list = flattened_list = [v for d in best_songs for key, values in d.items() for v in values] 
+
+    if "--dump" in sys.argv:
+        print(f"Songs to remove: {remove_songs_list}")
+
+    #Get a list of filepaths to remove
+    filepaths = get_filepaths(remove_songs_list)
+
+    #Get destination folder from config
+
+    with open("config.json", "r") as f:
+        config = json.load(f)
+    
+    backup_folder = config.get("move_files_folder")
+
+    #Move files to backup directory
+    move_files_and_export_to_json(filepaths, backup_folder)
+
+    #Delete Song entries from DB
+    remove_songs(remove_songs_list)
+
+    
+   
 
 
 

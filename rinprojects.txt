@@ -1,0 +1,4 @@
+- breakdown of songs and locations
+- move all song objects and files to one location
+
+- collect into folders by genre
