@@ -510,8 +510,13 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
             # Check created_at for oldest file
             dates = songs_transposed["created_at"]
             if not all_equal(dates):
-                date_format = "%Y-%m-%d %H:%M:%S.%f"
-                datetimes = [datetime.strptime(x, date_format) for x in dates]
+                try:
+                    date_format = "%Y-%m-%d %H:%M:%S.%f"
+                    datetimes = [datetime.strptime(x, date_format) for x in dates]
+                except ValueError:
+                    date_format = "%Y-%m-%d %H:%M:%S"
+                    datetimes = [datetime.strptime(x, date_format) for x in dates]
+                
                 best_index = datetimes.index(min(datetimes))
                 best_indexes.append(best_index)
                 stats["created_at"] += 1
