@@ -1,5 +1,7 @@
 import json
 import logging
+import io
+import sys
 import os
 import shutil
 import sys
@@ -11,41 +13,68 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from alive_progress import alive_bar
 from pyrekordbox import Rekordbox6Database, show_config
 from pyrekordbox.db6 import tables
+from contextlib import redirect_stdout
+from rich.console import Console
+from rich.table import Table
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.colours import *
+
+# Set up logging configuration
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)  # Set the minimum level of logging
+
+# Create console handler
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)  # Set level for console output
+
+# Create an instance of the custom formatter
+formatter = ColoredFormatter('%(levelname)s - %(message)s')
+
+# Add the formatter to the console handler
+ch.setFormatter(formatter)
+
+# Add the console handler to the logger
+logger.addHandler(ch)
+
 def remove_songs(idlist):
     if not idlist:
-        print("Error: idlist is empty. No songs to remove.")
+        logging.error("idlist is empty. No songs to remove.")
         return
 
-    print(f"Preparing to remove {len(idlist)} songs from Rekordbox DB")
+    logging.info(f"Preparing to remove {len(idlist)} songs from Rekordbox DB")
 
     try:
-        # Initialize database connection
-        db = Rekordbox6Database()
+        db = Rekordbox6Database()  # Attempt to initialize the database connection
+    except Exception as e:
+        logging.critical(f"Failed to connect to the database: {e}")
+        return  # Exit early if we can't even connect to the DB
 
-        # Perform the delete operation
-        rows_deleted = db.query(tables.DjmdContent).filter(tables.DjmdContent.ID.in_(idlist)).delete(synchronize_session=False)
+    try:
+        with alive_bar(len(idlist), title="Deleting songs") as bar:
+            for song_id in idlist:
+                try:
+                    # Delete operation
+                    row_deleted = db.query(tables.DjmdContent).filter(tables.DjmdContent.ID == song_id).delete(synchronize_session=False)
 
-        # Check if rows were deleted
-        if rows_deleted > 0:
-            print(f"Successfully deleted {rows_deleted} song(s) from the database.")
-        else:
-            print("No songs were deleted. Please check if the IDs exist in the database.")
+                    if row_deleted:
+                        bar()  # Increment progress bar
+                except SQLAlchemyError as e:
+                    logging.warning(f"Error deleting song ID {song_id}: {e}")
+                    db.rollback()  # Rollback only the failed operation (not the entire batch)
 
-        # Commit the transaction
-        db.commit()
+        db.commit()  # Commit only once at the end
+        logging.info("Deletion process completed successfully.")
 
-    except SQLAlchemyError as e:
-        # In case of an error, rollback the transaction
-        print(f"Error occurred while deleting songs: {e}")
-        db.rollback()
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        db.rollback()  # Rollback if a major unexpected error happens
 
     finally:
-        # Ensure the session is closed after the operation
         db.close()
 
     
@@ -62,13 +91,16 @@ def get_filepaths(idlist: List[int]) -> List[str]:
         # Query to get file paths based on IDs
         filepathlist = db.query(tables.DjmdContent.FolderPath).filter(tables.DjmdContent.ID.in_(idlist)).all()
 
-        # Check if any file paths were found
         if not filepathlist:
             logger.info("No filepaths found for the provided IDs.")
             return []
 
-        # Extract folder paths, assuming filepathlist is already a flat list
-        flatlist = [row[0] for row in filepathlist]  # Assuming row is a tuple with the first element being the path
+        # Extract folder paths with progress bar
+        with alive_bar(len(filepathlist), title="Extracting file paths") as bar:
+            flatlist = []
+            for row in filepathlist:
+                flatlist.append(row[0])  # Assuming row is a tuple with the path as the first element
+                bar()  # Update progress bar
 
         logger.info(f"Found {len(flatlist)} filepaths")
 
@@ -78,7 +110,11 @@ def get_filepaths(idlist: List[int]) -> List[str]:
         logger.error(f"Error retrieving filepaths from the database: {e}")
         return []
 
-def move_files_and_export_to_json(file_paths, destination_folder, json_file_path="destination_files.json"):
+    finally:
+        db.close()
+        logger.info("Database connection closed.")
+
+def move_files_and_export_to_json(file_paths, destination_folder, json_file_path="./data/destination_files.json"):
     # Check if file_paths is None or not a list
     if file_paths is None or not isinstance(file_paths, list):
         print("Error: file_paths is None or not a list.")
@@ -87,34 +123,34 @@ def move_files_and_export_to_json(file_paths, destination_folder, json_file_path
     # Ensure the destination folder exists
     Path(destination_folder).mkdir(parents=True, exist_ok=True)
 
-    # List to store successfully moved file paths
-    moved_files = []
+    moved_files = []  # List to store successfully moved file paths
 
-    for file_path in file_paths:
-        try:
-            # Define the destination path
-            original_filename = os.path.basename(file_path)
-            destination_path = os.path.join(destination_folder, original_filename)
-            
-            # Check if the file already exists at the destination
-            counter = 1
-            while os.path.exists(destination_path):
-                # Create a new filename by appending a counter
-                name, extension = os.path.splitext(original_filename)
-                destination_path = os.path.join(destination_folder, f"{name} ({counter}){extension}")
-                counter += 1
-            
-            # Move the file to the destination folder
-            shutil.move(file_path, destination_path)
-            moved_files.append(destination_path)  # Add moved file to the list
-            print(f"Moved: {file_path} to {destination_path}")
-        
-        except FileNotFoundError:
-            print(f"File not found: {file_path}")
-        except Exception as e:
-            print(f"Error moving {file_path}: {e}")
+    with alive_bar(len(file_paths), title="Moving files") as bar:
+        for file_path in file_paths:
+            try:
+                # Define the destination path
+                original_filename = os.path.basename(file_path)
+                destination_path = os.path.join(destination_folder, original_filename)
 
-    # Output the moved file paths to a JSON file
+                # Ensure unique filename if a file with the same name exists
+                counter = 1
+                while os.path.exists(destination_path):
+                    name, extension = os.path.splitext(original_filename)
+                    destination_path = os.path.join(destination_folder, f"{name} ({counter}){extension}")
+                    counter += 1
+
+                # Move the file
+                shutil.move(file_path, destination_path)
+                moved_files.append(destination_path)
+
+            except FileNotFoundError:
+                print(f"File not found: {file_path}")
+            except Exception as e:
+                print(f"Error moving {file_path}: {e}")
+
+            bar()  # Update progress bar after processing each file
+
+    # Save moved file paths to JSON
     with open(json_file_path, 'w') as json_file:
         json.dump(moved_files, json_file, indent=4)
         print(f"Exported moved file paths to {json_file_path}")
@@ -129,37 +165,35 @@ def replace_songs(best_songs: Dict[int, List[int]]):
     logger.info("Starting song replacements in Rekordbox DB")
 
     try:
-        # Initialize the database session
-        db = Rekordbox6Database()
+        db = Rekordbox6Database()  # Initialize the database session
 
-        # Track the total number of rows updated
-        total_rows_updated = 0
+        total_rows_updated = 0  # Track the total number of rows updated
 
-        for new_song_id, old_song_ids in best_songs.items():
-            # Convert new_song_id to integer
-            new_song_id = int(new_song_id)
+        with alive_bar(len(best_songs), title="Replacing songs") as bar:
+            for new_song_id, old_song_ids in best_songs.items():
+                try:
+                    new_song_id = int(new_song_id)  # Ensure it's an integer
 
-            # Update rows where ContentID is in the list of old_song_ids
-            rows_updated = db.query(tables.DjmdSongPlaylist)\
-                .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
-                .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
+                    # Update rows where ContentID is in old_song_ids
+                    rows_updated = db.query(tables.DjmdSongPlaylist)\
+                        .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
+                        .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
 
-            # Update the total count
-            total_rows_updated += rows_updated
+                    total_rows_updated += rows_updated
+                    bar()  # Update progress bar
+                except SQLAlchemyError as e:
+                    logger.error(f"Error updating song {new_song_id}: {e}")
+                    db.rollback()  # Rollback only failed updates
 
-        # Commit the changes after all updates
-        db.commit()
+        db.commit()  # Commit changes after all updates
         logger.info(f"{total_rows_updated} rows updated successfully.")
 
     except SQLAlchemyError as e:
-        # In case of an error, rollback the transaction
-        logger.error(f"Error occurred while updating songs: {e}")
+        logger.error(f"Critical error occurred while updating songs: {e}")
         db.rollback()
 
     finally:
-        # Ensure the session is closed after the operation
         db.close()
-        logger.info("Committed changes to Rekordbox DB and closed session.")
 
     
 
@@ -219,40 +253,50 @@ def all_equal(iterable):
     g = itertools.groupby(iterable)
     return next(g, True) and not next(g, False)
 
-def dump_object(obj, indent=0, visited=None, file=None, skip_recurse={}):
+def dump_object(obj, indent=0, visited=None, file=None, skip_recurse={}, progress_bar=None, total_items=None):
     """
     Recursively prints string attributes and values from an object,
     avoiding infinite recursion by tracking visited objects.
     Handles SQLAlchemy-related attribute access issues.
     Outputs the results to a file if provided.
+    Uses a single alive-progress bar for tracking.
     """
-    # skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed"}  # List of parameters to output but not recurse on
-    
+
     if visited is None:
         visited = set()
     
     if id(obj) in visited:
         return  # Avoid infinite recursion
     visited.add(id(obj))
-    
+
     def output(text):
         if file:
             file.write(text + "\n")
         else:
             print(text)
-    
+
+    # Initialize progress bar only at the top level
+    if progress_bar is None:
+        total_items = count_items(obj)  # Count total items for progress tracking
+        with alive_bar(total_items, title="Dumping object") as bar:
+            dump_object(obj, indent, visited, file, skip_recurse, progress_bar=bar, total_items=total_items)
+        return  # Prevent further execution after the initial call
+
+    # Update the progress bar when processing a new object
+    progress_bar()
+
     if isinstance(obj, str):
         output(" " * indent + obj)
     elif isinstance(obj, (list, tuple, set)):
         for item in obj:
-            dump_object(item, indent + 2, visited, file, skip_recurse=skip_recurse)
+            dump_object(item, indent + 2, visited, file, skip_recurse, progress_bar, total_items)
     elif isinstance(obj, dict):
         for key, value in obj.items():
             output(f"{' ' * indent}{key}: ")
             if key in skip_recurse:
                 output(f"{' ' * (indent + 2)}{value}")
             else:
-                dump_object(value, indent + 2, visited, file, skip_recurse=skip_recurse)
+                dump_object(value, indent + 2, visited, file, skip_recurse, progress_bar, total_items)
     else:
         # Suppress SQLAlchemy deprecation warnings
         with warnings.catch_warnings():
@@ -270,9 +314,19 @@ def dump_object(obj, indent=0, visited=None, file=None, skip_recurse={}):
                         output(f"{' ' * indent}{name}: {value}")
                     else:
                         output(f"{' ' * indent}{name}:")
-                        dump_object(value, indent + 2, visited, file, skip_recurse=skip_recurse)
+                        dump_object(value, indent + 2, visited, file, skip_recurse, progress_bar, total_items)
                 except Exception:
                     continue  # Skip attributes that raise exceptions when accessed
+
+def count_items(obj):
+    """Helper function to estimate the total number of items for progress tracking."""
+    if isinstance(obj, (list, tuple, set)):
+        return sum(count_items(item) for item in obj) + len(obj)
+    elif isinstance(obj, dict):
+        return sum(count_items(value) for value in obj.values()) + len(obj)
+    elif hasattr(obj, '__dict__'):
+        return sum(count_items(value) for value in vars(obj).values()) + 1
+    return 1  # Base case for single objects
 
 def grouped_non_unique_indexes(strings):
     # Step 1: Count occurrences of each string and store their indexes
@@ -308,41 +362,44 @@ def dump_song_data(yaml_file_path: str = "./data/song_dump.yaml", json_file_path
     db = Rekordbox6Database()
     
     try:
-        dbcontent = db.get_content()
+        dbcontent = db.get_content().all()
     except Exception as e:
         print(f"Error retrieving content from the database: {e}")
         return []
 
     content_list = []
 
-    for index, content in enumerate(dbcontent):
-        # Dump to YAML if "--dump" is in command line arguments
-        if "--dump" in sys.argv:
-            try:
-                with open(yaml_file_path, "w", encoding="utf-8") as f:
-                    dump_object(content, file=f, skip_recurse={"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTags", "MyTagIDs", "MyTagNames", "Artist", "Genre", "Key", "Album", "Analysed"})
-            except Exception as e:
-                print(f"Error writing to YAML file: {e}")
+    # Initialize progress bar for the number of songs in dbcontent
+    with alive_bar(len(dbcontent), title="Dumping song data") as bar:
+        for index, content in enumerate(dbcontent):
+            # Dump to YAML if "--dump" is in command line arguments
+            if "--dump" in sys.argv:
+                try:
+                    with open(yaml_file_path, "w", encoding="utf-8") as f:
+                        dump_object(content, file=f, skip_recurse={"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTags", "MyTagIDs", "MyTagNames", "Artist", "Genre", "Key", "Album", "Analysed"})
+                except Exception as e:
+                    print(f"Error writing to YAML file: {e}")
 
-        # Create a JSON-formatted dictionary for each content
-        json_formatted = {
-            "ID": content.ID,
-            "index": index,
-            "created_at": str(content.created_at),
-            "Title": content.Title,
-            "AlbumID": content.AlbumID,
-            "AlbumName": content.AlbumName,
-            "ArtistName": content.ArtistName,
-            "ArtistID": content.ArtistID,
-            "FolderPath": content.FolderPath,
-            "BPM": content.BPM,
-            "BitRate": content.BitRate,
-            "FullName": f"{content.ArtistName} - {content.Title}",
-            "MyTagIDs": list(content.MyTagIDs),
-            "MyTagNames": list(content.MyTagNames)
-        }
+            # Create a JSON-formatted dictionary for each content
+            json_formatted = {
+                "ID": content.ID,
+                "index": index,
+                "created_at": str(content.created_at),
+                "Title": content.Title,
+                "AlbumID": content.AlbumID,
+                "AlbumName": content.AlbumName,
+                "ArtistName": content.ArtistName,
+                "ArtistID": content.ArtistID,
+                "FolderPath": content.FolderPath,
+                "BPM": content.BPM,
+                "BitRate": content.BitRate,
+                "FullName": f"{content.ArtistName} - {content.Title}",
+                "MyTagIDs": list(content.MyTagIDs),
+                "MyTagNames": list(content.MyTagNames)
+            }
 
-        content_list.append(json_formatted)
+            content_list.append(json_formatted)
+            bar()  # Update progress bar after processing each song
 
     # Write to JSON file
     try:
@@ -367,32 +424,35 @@ def dump_playlist_data(yaml_file_path: str = "./data/playlist_data.yaml", json_f
     db = Rekordbox6Database()
     
     try:
-        dbcontent = db.get_playlist()
+        dbcontent = db.get_playlist().all()
     except Exception as e:
         print(f"Error retrieving playlists from the database: {e}")
         return []
 
     content_list = []
 
-    for index, content in enumerate(dbcontent):
-        # Dump to YAML if "--dump" is in command line arguments
-        if "--dump" in sys.argv:
-            try:
-                with open(yaml_file_path, "w", encoding="utf-8") as f:
-                    dump_object(content, file=f, skip_recurse={"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
-            except Exception as e:
-                print(f"Error writing to YAML file: {e}")
+    # Initialize progress bar for the number of playlists in dbcontent
+    with alive_bar(len(dbcontent), title="Dumping playlist data") as bar:
+        for index, content in enumerate(dbcontent):
+            # Dump to YAML if "--dump" is in command line arguments
+            if "--dump" in sys.argv:
+                try:
+                    with open(yaml_file_path, "w", encoding="utf-8") as f:
+                        dump_object(content, file=f, skip_recurse={"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
+                except Exception as e:
+                    print(f"Error writing to YAML file: {e}")
 
-        # Create a JSON-formatted dictionary for each playlist
-        json_formatted = {
-            "ID": content["ID"],
-            "index": index,
-            "Name": content.Name,
-            "Attribute": content.Attribute,
-            "SongIDs": [getattr(x.Content, "ID", "No ID") for x in content.Songs]
-        }
+            # Create a JSON-formatted dictionary for each playlist
+            json_formatted = {
+                "ID": content["ID"],
+                "index": index,
+                "Name": content.Name,
+                "Attribute": content.Attribute,
+                "SongIDs": [getattr(x.Content, "ID", "No ID") for x in content.Songs]
+            }
 
-        content_list.append(json_formatted)
+            content_list.append(json_formatted)
+            bar()  # Update progress bar after processing each playlist
 
     # Write to JSON file
     try:
@@ -403,7 +463,6 @@ def dump_playlist_data(yaml_file_path: str = "./data/playlist_data.yaml", json_f
     
     return content_list
 
-
 def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[List[int]]) -> Dict[int, List[int]]:
     """
     Deduplicates a list of songs based on multiple criteria: bitrate, imported from device, created date, and index.
@@ -413,7 +472,7 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
         non_unique_indexes (List[List[int]]): List of index groups that are considered duplicates.
 
     Returns:
-        List[Dict[int, List[int]]]: List of dictionaries mapping the best song ID to the list of duplicate IDs to be removed.
+        Dict[int, List[int]]: Dictionary mapping the best song ID to the list of duplicate IDs to be removed.
     """
     stats = {
         "highest_bitrate": 0,
@@ -424,41 +483,47 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
 
     best_indexes = []
 
-    for group in non_unique_indexes:
-        songs = [content_list[songindex] for songindex in group]
-        songs_transposed = transpose_dicts(songs)
+    # Initialize the progress bar for non_unique_indexes
+    with alive_bar(len(non_unique_indexes), title="Deduplicating songs") as bar:
+        for group in non_unique_indexes:
+            songs = [content_list[songindex] for songindex in group]
+            songs_transposed = transpose_dicts(songs)
 
-        # Check bitrate
-        bitrates = songs_transposed["BitRate"]
-        if not all_equal(bitrates):
-            best_index = bitrates.index(max(bitrates))
-            best_indexes.append(best_index)
-            stats["highest_bitrate"] += 1
-            continue
+            # Check bitrate
+            bitrates = songs_transposed["BitRate"]
+            if not all_equal(bitrates):
+                best_index = bitrates.index(max(bitrates))
+                best_indexes.append(best_index)
+                stats["highest_bitrate"] += 1
+                bar()  # Update progress bar
+                continue
 
-        # Check FolderPath for imported from device
-        imported_bools = ["/Imported from Device/" in x for x in songs_transposed["FolderPath"]]
-        if False in imported_bools and True in imported_bools:
-            best_index = imported_bools.index(False)
-            best_indexes.append(best_index)
-            stats["remove_imported"] += 1
-            continue
+            # Check FolderPath for imported from device
+            imported_bools = ["/Imported from Device/" in x for x in songs_transposed["FolderPath"]]
+            if False in imported_bools and True in imported_bools:
+                best_index = imported_bools.index(False)
+                best_indexes.append(best_index)
+                stats["remove_imported"] += 1
+                bar()  # Update progress bar
+                continue
 
-        # Check created_at for oldest file
-        dates = songs_transposed["created_at"]
-        if not all_equal(dates):
-            date_format = "%Y-%m-%d %H:%M:%S.%f"
-            datetimes = [datetime.strptime(x, date_format) for x in dates]
-            best_index = datetimes.index(min(datetimes))
-            best_indexes.append(best_index)
-            stats["created_at"] += 1
-            continue
+            # Check created_at for oldest file
+            dates = songs_transposed["created_at"]
+            if not all_equal(dates):
+                date_format = "%Y-%m-%d %H:%M:%S.%f"
+                datetimes = [datetime.strptime(x, date_format) for x in dates]
+                best_index = datetimes.index(min(datetimes))
+                best_indexes.append(best_index)
+                stats["created_at"] += 1
+                bar()  # Update progress bar
+                continue
 
-        # If all criteria are the same, choose the first index
-        best_indexes.append(min(group))
-        stats["first_index"] += 1
+            # If all criteria are the same, choose the first index
+            best_indexes.append(min(group))
+            stats["first_index"] += 1
+            bar()  # Update progress bar
 
-    print(stats)
+    print_rich_stats(stats)
 
     # Construct final deduplicated list
     best_songs = {}
@@ -472,29 +537,78 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
 
     return cleaned_data
 
-if __name__ == "__main__":
-    # Set up logging configuration
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+def print_rich_stats(stats):
+    console = Console()
+    
+    table = Table(title="Statistics Summary")
+    table.add_column("Metric", style="bold green")
+    table.add_column("Value", style="bold yellow")
 
+    for key, value in stats.items():
+        table.add_row(key.replace('_', ' ').title(), str(value))
+
+    console.print(table)
+
+def colorize_output(output):
+    # ANSI escape codes for colors
+    HEADER_COLOR = "\033[1;34m"  # Blue
+    KEY_COLOR = "\033[1;32m"     # Green
+    VALUE_COLOR = "\033[1;33m"   # Yellow
+    RESET_COLOR = "\033[0m"      # Reset to default
+
+    # Process lines and apply color coding
+    colored_lines = []
+    for line in output.splitlines():
+        if "Pioneer:" in line:
+            colored_lines.append(HEADER_COLOR + line + RESET_COLOR)
+        elif line.strip().endswith(":"):
+            colored_lines.append(HEADER_COLOR + line + RESET_COLOR)
+        elif "=" in line:
+            key, value = line.split("=", 1)
+            colored_line = f"{KEY_COLOR}{key.strip()}{RESET_COLOR} = {VALUE_COLOR}{value.strip()}{RESET_COLOR}"
+            colored_lines.append(colored_line)
+        else:
+            colored_lines.append(line)
+
+    return "\n".join(colored_lines)
+
+def config_output_col():
     # Output config
-    show_config()
+    output_buffer = io.StringIO()
+    with redirect_stdout(output_buffer):
+        show_config()
 
-    # If dumping, create data folder if it doesn't exist
-    if "--dump" in sys.argv:
-        Path("./data").mkdir(parents=True, exist_ok=True)
+    captured_output = output_buffer.getvalue()
+
+    # Apply color coding to the captured output
+    colored_output = colorize_output(captured_output)
+
+    # Print the color-coded output
+    print(colored_output)
+
+if __name__ == "__main__":
+    #Output config with colour coding
+    config_output_col()
+
+    # Create data folder if it doesn't exist
+    Path("./data").mkdir(parents=True, exist_ok=True)
 
     # Retrieve song data and output to JSON
-    print("Retrieving song data...")
     content_list = dump_song_data()
-    print("Song data dumped to song_data.json")
+
+    # Retrieve playlists
+    dump_playlist_data()
 
     # Transpose the content list for easier searching/filtering
     transposed_list = transpose_dicts(content_list)
 
     # Find indexes of non-unique items based on full name (Song title and artist name combined)
     non_unique_indexes = grouped_non_unique_indexes(transposed_list["FullName"])
-    print(f"{len(non_unique_indexes)} duplicate tracks found")
+    logging.info(f"{len(non_unique_indexes)} duplicate tracks found")
+
+    if len(non_unique_indexes) == 0:
+        print("No duplicates were found, exiting")
+        exit(1)
 
     # Identify the best member of each group and format as a list of dicts
     best_songs = deduplicate(content_list, non_unique_indexes)
@@ -504,8 +618,7 @@ if __name__ == "__main__":
         with open("./data/best_ids.json", "w", encoding="utf-8") as f:
             json.dump(best_songs, f, indent=4)
 
-    # Retrieve playlists
-    dump_playlist_data()
+    input("Proceed with Deduplication? Press Ctrl+C to exit if not >> ")
 
     # Replace songs in playlists with the best selections
     replace_songs(best_songs)
@@ -516,6 +629,8 @@ if __name__ == "__main__":
     # Dump the list of songs to remove if requested
     if "--dump" in sys.argv:
         print(f"Songs to remove: {remove_songs_list}")
+
+    input("Proceed with relocation of duplicate song files? Press Ctrl+C to exit if not >> ")
 
     # Get filepaths of songs to remove
     filepaths = get_filepaths(remove_songs_list)
