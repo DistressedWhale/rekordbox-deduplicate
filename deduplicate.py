@@ -510,14 +510,24 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
             # Check created_at for oldest file
             dates = songs_transposed["created_at"]
             if not all_equal(dates):
-                try:
-                    date_format = "%Y-%m-%d %H:%M:%S.%f"
-                    datetimes = [datetime.strptime(x, date_format) for x in dates]
-                except ValueError:
-                    date_format = "%Y-%m-%d %H:%M:%S"
-                    datetimes = [datetime.strptime(x, date_format) for x in dates]
-                except Exception as e:
-                    logging.error(f"An unknown exception occurred {e}")
+
+                # Define potential date formats
+                date_formats = [
+                    "%Y-%m-%d %H:%M:%S.%f",  # Handles microseconds
+                    "%Y-%m-%d %H:%M:%S",      # Handles seconds only
+                ]
+        
+                datetimes = []
+                for date_str in dates:
+                    for date_format in date_formats:
+                        try:
+                            # Attempt to parse the date string
+                            datetimes.append(datetime.strptime(date_str, date_format))
+                            break  # Exit the format loop if parsing is successful
+                        except ValueError:
+                            continue  # Try the next format
+                        except Exception as e:
+                            logging.error(f"An unknown exception occurred: {e}")
                 
                 best_index = datetimes.index(min(datetimes))
                 best_indexes.append(best_index)
