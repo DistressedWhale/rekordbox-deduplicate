@@ -516,6 +516,8 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
                 except ValueError:
                     date_format = "%Y-%m-%d %H:%M:%S"
                     datetimes = [datetime.strptime(x, date_format) for x in dates]
+                except Exception as e:
+                    logging.error(f"An unknown exception occurred {e}")
                 
                 best_index = datetimes.index(min(datetimes))
                 best_indexes.append(best_index)
