@@ -1,23 +1,25 @@
-# from pyrekordbox import show_config
-
-# show_config()
-
-import inspect, json, warnings, itertools, sys
-from pyrekordbox import Rekordbox6Database
-from datetime import datetime
-from pyrekordbox.db6 import tables
-from pathlib import Path
-import shutil
-from sqlalchemy.engine.row import Row
-import os
-from sqlalchemy.exc import SQLAlchemyError
+import json
 import logging
-from typing import List, Dict, Optional, Any
+import os
+import shutil
+import sys
+import warnings
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from pyrekordbox import Rekordbox6Database, show_config
+from pyrekordbox.db6 import tables
+
+from sqlalchemy.exc import SQLAlchemyError
+
 
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+show_config()
 
 def remove_songs(idlist):
     if not idlist:
