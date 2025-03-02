@@ -10,32 +10,76 @@ from pathlib import Path
 import shutil
 from sqlalchemy.engine.row import Row
 import os
+from sqlalchemy.exc import SQLAlchemyError
+import logging
+from typing import List, Dict, Optional, Any
+from collections import defaultdict
+
+# Set up logging configuration
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def remove_songs(idlist):
+    if not idlist:
+        print("Error: idlist is empty. No songs to remove.")
+        return
+
     print(f"Preparing to remove {len(idlist)} songs from Rekordbox DB")
 
-    db = Rekordbox6Database()
+    try:
+        # Initialize database connection
+        db = Rekordbox6Database()
 
-    session = db.query(tables.DjmdContent).filter(tables.DjmdContent.ID.in_(idlist)).delete(synchronize_session=False)
+        # Perform the delete operation
+        rows_deleted = db.query(tables.DjmdContent).filter(tables.DjmdContent.ID.in_(idlist)).delete(synchronize_session=False)
 
-    print(f"{session} rows updated")
+        # Check if rows were deleted
+        if rows_deleted > 0:
+            print(f"Successfully deleted {rows_deleted} song(s) from the database.")
+        else:
+            print("No songs were deleted. Please check if the IDs exist in the database.")
 
-    db.commit()
+        # Commit the transaction
+        db.commit()
+
+    except SQLAlchemyError as e:
+        # In case of an error, rollback the transaction
+        print(f"Error occurred while deleting songs: {e}")
+        db.rollback()
+
+    finally:
+        # Ensure the session is closed after the operation
+        db.close()
+
     
-def get_filepaths(idlist):
-    print("Retrieving filepaths of songs to be deleted")
+def get_filepaths(idlist: List[int]) -> List[str]:
+    if not idlist:
+        logger.warning("idlist is empty. No filepaths to retrieve.")
+        return []
 
-    db = Rekordbox6Database()
+    logger.info("Retrieving filepaths of songs to be deleted")
 
-    filepathlist = db.query(tables.DjmdContent.FolderPath).filter(tables.DjmdContent.ID.in_(idlist)).all()
+    try:
+        db = Rekordbox6Database()
 
-    flattened = [tuple(row) if isinstance(row, Row) else (row,) for sublist in filepathlist for row in sublist]
+        # Query to get file paths based on IDs
+        filepathlist = db.query(tables.DjmdContent.FolderPath).filter(tables.DjmdContent.ID.in_(idlist)).all()
 
-    flatlist = list(sum(flattened, ()))
+        # Check if any file paths were found
+        if not filepathlist:
+            logger.info("No filepaths found for the provided IDs.")
+            return []
 
-    print(f"Found {len(flatlist)} filepaths")
+        # Extract folder paths, assuming filepathlist is already a flat list
+        flatlist = [row[0] for row in filepathlist]  # Assuming row is a tuple with the first element being the path
 
-    return flatlist
+        logger.info(f"Found {len(flatlist)} filepaths")
+
+        return flatlist
+
+    except SQLAlchemyError as e:
+        logger.error(f"Error retrieving filepaths from the database: {e}")
+        return []
 
 def move_files_and_export_to_json(file_paths, destination_folder, json_file_path="destination_files.json"):
     # Check if file_paths is None or not a list
@@ -80,47 +124,100 @@ def move_files_and_export_to_json(file_paths, destination_folder, json_file_path
 
 
 # Replace all occurrences of a song in a playlist with another song
-def replace_songs(best_songs):
-    db = Rekordbox6Database()
+def replace_songs(best_songs: List[Dict[int, List[int]]]):
+    if not best_songs:
+        logger.warning("No song replacements provided. Exiting function.")
+        return
+
+    logger.info("Starting song replacements in Rekordbox DB")
+
+    try:
+        # Initialize the database session
+        db = Rekordbox6Database()
+
+        # Track the total number of rows updated
+        total_rows_updated = 0
+
+        for mapping in best_songs:
+            for new_song_id, old_song_ids in mapping.items():
+                # Convert new_song_id to integer
+                new_song_id = int(new_song_id)
+
+                # Update rows where ContentID is in the list of old_song_ids
+                rows_updated = db.query(tables.DjmdSongPlaylist)\
+                    .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
+                    .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
+
+                # Update the total count
+                total_rows_updated += rows_updated
+
+        # Commit the changes after all updates
+        db.commit()
+        logger.info(f"{total_rows_updated} rows updated successfully.")
+
+    except SQLAlchemyError as e:
+        # In case of an error, rollback the transaction
+        logger.error(f"Error occurred while updating songs: {e}")
+        db.rollback()
+
+    finally:
+        # Ensure the session is closed after the operation
+        db.close()
+        logger.info("Committed changes to Rekordbox DB and closed session.")
+
     
-    for mapping in best_songs:
-        for new_song_id, old_song_ids in mapping.items():
-            # Convert key from string to integer
-            new_song_id = int(new_song_id)
 
-            # Update rows where SongID is in the list of old_song_ids
-            session = db.query(tables.DjmdSongPlaylist)\
-                        .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
-                        .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
+def index_to_id(index: int, li: List[Dict[str, int]]) -> Optional[int]:
+    """
+    Retrieve the 'ID' from a list of dictionaries based on the given index.
 
-    # Commit the changes
-    db.commit()
+    Args:
+        index (int): The index of the item in the list.
+        li (List[Dict[str, int]]): A list of dictionaries containing 'ID'.
 
-    print(f"{session} rows updated")
+    Returns:
+        Optional[int]: The ID as an integer if found, None if index is out of bounds or ID is not present.
+    """
+    try:
+        if index < 0 or index >= len(li):
+            logger.warning(f"Index {index} is out of bounds for the list of length {len(li)}.")
+            return None
 
-    # Close the session
-    db.close()
-    print("Committed to Rekordbox DB")
-    
+        item = li[index]
+        
+        if "ID" not in item:
+            logger.warning(f"No 'ID' key found in the item at index {index}.")
+            return None
 
-def index_to_id(index, li):
-    return int(li[index]["ID"])
+        return int(item["ID"])
+
+    except (ValueError, TypeError) as e:
+        logger.error(f"Error converting ID to int: {e}")
+        return None
 
 
-def transpose_dicts(list_of_dicts):
-    # Initialize an empty dictionary to hold the transposed data
-    transposed = {}
+def transpose_dicts(list_of_dicts: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
+    """
+    Transpose a list of dictionaries, aggregating values by their keys.
+
+    Args:
+        list_of_dicts (List[Dict[str, Any]]): A list of dictionaries to be transposed.
+
+    Returns:
+        Dict[str, List[Any]]: A dictionary with keys from the input dictionaries and values as lists of corresponding values.
+    """
+    # Initialize a defaultdict to hold the transposed data
+    transposed = defaultdict(list)
 
     # Iterate through each dictionary in the list
     for d in list_of_dicts:
+        if not isinstance(d, dict):
+            raise ValueError("All elements of the input list must be dictionaries.")
         for key, value in d.items():
-            # If the key is not already in the transposed dictionary, initialize it with an empty list
-            if key not in transposed:
-                transposed[key] = []
             # Append the value to the corresponding list in the transposed dictionary
             transposed[key].append(value)
 
-    return transposed
+    return dict(transposed)  # Convert defaultdict back to a regular dict before returning
 
 def all_equal(iterable):
     g = itertools.groupby(iterable)
@@ -181,40 +278,6 @@ def dump_object(obj, indent=0, visited=None, file=None, skip_recurse={}):
                 except Exception:
                     continue  # Skip attributes that raise exceptions when accessed
 
-def non_unique_indexes(strings):
-    # Step 1: Count occurrences of each string
-    count = {}
-    for string in strings:
-        count[string] = count.get(string, 0) + 1
-
-    # Step 2: Identify non-unique strings
-    non_unique = {string for string, c in count.items() if c > 1}
-
-    # Step 3: Get indexes of non-unique strings
-    indexes = [i for i, string in enumerate(strings) if string in non_unique]
-
-    return indexes
-
-def non_unique_indexes_excluding_first(strings):
-    # Step 1: Count occurrences of each string and track first occurrences
-    count = {}
-    first_occurrence = {}
-
-    for index, string in enumerate(strings):
-        # Count occurrences
-        count[string] = count.get(string, 0) + 1
-        # Track the first occurrence
-        if string not in first_occurrence:
-            first_occurrence[string] = index
-
-    # Step 2: Get indexes of non-unique strings excluding their first occurrence
-    indexes = []
-    for index, string in enumerate(strings):
-        if count[string] > 1 and index != first_occurrence[string]:
-            indexes.append(index)
-
-    return indexes
-
 def grouped_non_unique_indexes(strings):
     # Step 1: Count occurrences of each string and store their indexes
     count = {}
@@ -235,18 +298,37 @@ def grouped_non_unique_indexes(strings):
     return grouped_indexes
 
 
-def dump_song_data():
-    db = Rekordbox6Database()
+def dump_song_data(yaml_file_path: str = "./data/song_dump.yaml", json_file_path: str = "./data/song_data.json") -> List[Dict[str, Any]]:
+    """
+    Dumps song data from the database to a JSON file and optionally to a YAML file.
 
-    dbcontent = db.get_content()
+    Args:
+        yaml_file_path (str): The path to the YAML file for dumping song data.
+        json_file_path (str): The path to the JSON file for dumping song data.
+
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries containing song data.
+    """
+    db = Rekordbox6Database()
+    
+    try:
+        dbcontent = db.get_content()
+    except Exception as e:
+        print(f"Error retrieving content from the database: {e}")
+        return []
 
     content_list = []
 
     for index, content in enumerate(dbcontent):
-
+        # Dump to YAML if "--dump" is in command line arguments
         if "--dump" in sys.argv:
-            with open("./data/song_dump.yaml", "w", encoding="utf-8") as f:
-                dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTags", "MyTagIDs", "MyTagNames", "Artist", "Genre", "Key", "Album", "Analysed"})
+            try:
+                with open(yaml_file_path, "w", encoding="utf-8") as f:
+                    dump_object(content, file=f, skip_recurse={"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTags", "MyTagIDs", "MyTagNames", "Artist", "Genre", "Key", "Album", "Analysed"})
+            except Exception as e:
+                print(f"Error writing to YAML file: {e}")
+
+        # Create a JSON-formatted dictionary for each content
         json_formatted = {
             "ID": content.ID,
             "index": index,
@@ -266,24 +348,46 @@ def dump_song_data():
 
         content_list.append(json_formatted)
 
-    with open("./data/song_data.json", "w") as f:
-        json.dump(content_list, f, indent=4)
+    # Write to JSON file
+    try:
+        with open(json_file_path, "w", encoding="utf-8") as f:
+            json.dump(content_list, f, indent=4)
+    except Exception as e:
+        print(f"Error writing to JSON file: {e}")
     
     return content_list
 
-def dump_playlist_data():
-    db = Rekordbox6Database()
+def dump_playlist_data(yaml_file_path: str = "./data/playlist_data.yaml", json_file_path: str = "./data/playlist_data.json") -> List[Dict[str, Any]]:
+    """
+    Dumps playlist data from the database to a JSON file and optionally to a YAML file.
 
-    dbcontent = db.get_playlist()
+    Args:
+        yaml_file_path (str): The path to the YAML file for dumping playlist data.
+        json_file_path (str): The path to the JSON file for dumping playlist data.
+
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries containing playlist data.
+    """
+    db = Rekordbox6Database()
+    
+    try:
+        dbcontent = db.get_playlist()
+    except Exception as e:
+        print(f"Error retrieving playlists from the database: {e}")
+        return []
 
     content_list = []
 
     for index, content in enumerate(dbcontent):
-        
+        # Dump to YAML if "--dump" is in command line arguments
         if "--dump" in sys.argv:
-            with open("./data/playlist_data.yaml", "w", encoding="utf-8") as f:
-                dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
+            try:
+                with open(yaml_file_path, "w", encoding="utf-8") as f:
+                    dump_object(content, file=f, skip_recurse={"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
+            except Exception as e:
+                print(f"Error writing to YAML file: {e}")
 
+        # Create a JSON-formatted dictionary for each playlist
         json_formatted = {
             "ID": content["ID"],
             "index": index,
@@ -294,102 +398,81 @@ def dump_playlist_data():
 
         content_list.append(json_formatted)
 
-    with open("./data/playlist_data.json", "w") as f:
-        json.dump(content_list, f, indent=4)
+    # Write to JSON file
+    try:
+        with open(json_file_path, "w", encoding="utf-8") as f:
+            json.dump(content_list, f, indent=4)
+    except Exception as e:
+        print(f"Error writing to JSON file: {e}")
     
     return content_list
 
-def deduplicate(content_list, non_unique_indexes):
-    #Come up with a final list of indexes/ID's to remove, based on criteria
-    #1. Higher bitrate
-    #2. FolderPath contains "imported from device" (prioritise your own files)
-    #3. CreatedAt (Prioritise older files)
-    #4. First index (Files are the same in all other criteria)
 
+def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[List[int]]) -> List[Dict[int, List[int]]]:
+    """
+    Deduplicates a list of songs based on multiple criteria: bitrate, imported from device, created date, and index.
+
+    Args:
+        content_list (List[Dict[str, Any]]): List of song data as dictionaries.
+        non_unique_indexes (List[List[int]]): List of index groups that are considered duplicates.
+
+    Returns:
+        List[Dict[int, List[int]]]: List of dictionaries mapping the best song ID to the list of duplicate IDs to be removed.
+    """
     stats = {
-        "highest_bitrate":0,
-        "remove_imported":0,
-        "created_at":0,
-        "first_index":0
+        "highest_bitrate": 0,
+        "remove_imported": 0,
+        "created_at": 0,
+        "first_index": 0
     }
 
     best_indexes = []
 
     for group in non_unique_indexes:
-        
-        songs = []
-        # Retrieve song information in the same order
-        for songindex in group:
-            songs.append(content_list[songindex])
-        
+        songs = [content_list[songindex] for songindex in group]
         songs_transposed = transpose_dicts(songs)
 
-        # #Create merged My Tag for later
-        # merged_my_tag_ids = list(sum(songs_transposed["MyTagIDs"], ()))
-        # merged_my_tag_ids = list(sum(songs_transposed["MyTagNames"], ()))
-
-        #Evaluate based on bitrate
+        # Check bitrate
         bitrates = songs_transposed["BitRate"]
         if not all_equal(bitrates):
-            #pick highest bitrate
-            #TODO: recurse here if there are multiple with  higher bitrate
-            stats["highest_bitrate"] += 1
-
             best_index = bitrates.index(max(bitrates))
             best_indexes.append(best_index)
-
-            # print(bitrates)
-            # print(best_index)
-
+            stats["highest_bitrate"] += 1
             continue
 
-        #Evaluate if there is a my tag
-
-
-        #Evaluate if imported from an external device
+        # Check FolderPath for imported from device
         imported_bools = ["/Imported from Device/" in x for x in songs_transposed["FolderPath"]]
         if False in imported_bools and True in imported_bools:
-            #TODO: recurse here if there are multiple in the group which are not imported
-
-            stats["remove_imported"] += 1
-
             best_index = imported_bools.index(False)
             best_indexes.append(best_index)
-            # print(group)
-            # print(imported_bools)
-            # print(best_index)
-
+            stats["remove_imported"] += 1
             continue
 
-        #Evaluate oldest file
+        # Check created_at for oldest file
         dates = songs_transposed["created_at"]
         if not all_equal(dates):
-            #pick oldest date
-
-            stats["created_at"] += 1
-
             date_format = "%Y-%m-%d %H:%M:%S.%f"
             datetimes = [datetime.strptime(x, date_format) for x in dates]
-
             best_index = datetimes.index(min(datetimes))
             best_indexes.append(best_index)
-
-            # print(dates)
-            # print(best_index)
-
-
+            stats["created_at"] += 1
             continue
 
-        #Pick based on internal index (Files are same on all other criteria)
+        # If all criteria are the same, choose the first index
         best_indexes.append(min(group))
         stats["first_index"] += 1
- 
+
     print(stats)
 
-    #Construct list of dicts at the end
-    best_songs = [{index_to_id(non_unique_indexes[i][index], content_list) : list(map(lambda a: index_to_id(a, content_list), non_unique_indexes[i]))} for i, index in enumerate(best_indexes)]
+    # Construct final deduplicated list
+    best_songs = {}
+    for i, index in enumerate(best_indexes):
+        best_id = index_to_id(non_unique_indexes[i][index], content_list)
+        duplicate_ids = [index_to_id(a, content_list) for a in non_unique_indexes[i]]
+        best_songs[best_id] = duplicate_ids
 
-    cleaned_data = [{key: [v for v in values if v != key]} for d in best_songs for key, values in d.items()]
+    # Clean up the data by removing duplicates from the lists
+    cleaned_data = {key: [v for v in values if v != key] for key, values in best_songs.items()}
 
     if "--dump" in sys.argv:
         print(cleaned_data)
@@ -397,60 +480,53 @@ def deduplicate(content_list, non_unique_indexes):
     return cleaned_data
 
 if __name__ == "__main__":
-    #Get song data in a useful format
+    # Retrieve song data and output to JSON
     print("Retrieving song data...")
     content_list = dump_song_data()
     print("Song data dumped to song_data.json")
 
-    #Transpose list to assist with searching/filtering by attributes
+    # Transpose the content list for easier searching/filtering
     transposed_list = transpose_dicts(content_list)
 
-    #Find the indexes of non unique items (List of lists) based on the full name (Song title and artist name combined)
+    # Find indexes of non-unique items based on full name (Song title and artist name combined)
     non_unique_indexes = grouped_non_unique_indexes(transposed_list["FullName"])
-
     print(f"{len(non_unique_indexes)} duplicate tracks found")
 
-    #Apply filter criteria to each group to identify the best member of each group.
-    #Return a list of dicts with the best item as the index 
-    # [ {'46': [46, 1528]}, {'68': [68, 1503]}, {'97': [97, 1567, 1606]}, {'130': [130, 1508]}, {'135': [135, 1247]}, {'137': [137, 671]} ]
+    # Identify the best member of each group and format as a list of dicts
     best_songs = deduplicate(content_list, non_unique_indexes)
 
+    # Dump the best IDs to JSON if requested
     if "--dump" in sys.argv:
         with open("./data/best_ids.json", "w", encoding="utf-8") as f:
             json.dump(best_songs, f, indent=4)
-                
-    # print(best_songs)
 
-    # input("\nWould you like to proceed with deduplication? Use Ctrl+C to exit if not\n>>> ")
+    # Retrieve playlists
+    dump_playlist_data()
 
-    #Retrieve playlists 
-    dump_playlist_data()  
+    # Replace songs in playlists with the best selections
+    replace_songs(best_songs)
 
-    #Apply the changes to the database - replacing songs in playlists as needed
-    replace_songs(best_songs) 
-    
-    #Get a list of IDs of songs to remove
-    remove_songs_list = flattened_list = [v for d in best_songs for key, values in d.items() for v in values] 
+    # Create a list of IDs for songs to remove
+    remove_songs_list = [v for d in best_songs for key, values in d.items() for v in values]
 
+    # Dump the list of songs to remove if requested
     if "--dump" in sys.argv:
         print(f"Songs to remove: {remove_songs_list}")
 
-    #Get a list of filepaths to remove
+    # Get filepaths of songs to remove
     filepaths = get_filepaths(remove_songs_list)
 
-    #Get destination folder from config
-
+    # Load backup folder configuration
     with open("./data/config.json", "r") as f:
         config = json.load(f)
     
     backup_folder = config.get("move_files_folder")
 
-    #Move files to backup directory
+    # Move files to backup directory and export the list to JSON
     move_files_and_export_to_json(filepaths, backup_folder)
 
-    #Delete Song entries from DB
+    # Remove song entries from the database
     remove_songs(remove_songs_list)
-
     
    
 
