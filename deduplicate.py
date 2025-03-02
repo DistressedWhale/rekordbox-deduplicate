@@ -245,7 +245,7 @@ def dump_song_data():
     for index, content in enumerate(dbcontent):
 
         if "--dump" in sys.argv:
-            with open("song_dump.yaml", "w", encoding="utf-8") as f:
+            with open("./data/song_dump.yaml", "w", encoding="utf-8") as f:
                 dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTags", "MyTagIDs", "MyTagNames", "Artist", "Genre", "Key", "Album", "Analysed"})
         json_formatted = {
             "ID": content.ID,
@@ -266,7 +266,7 @@ def dump_song_data():
 
         content_list.append(json_formatted)
 
-    with open("song_data.json", "w") as f:
+    with open("./data/song_data.json", "w") as f:
         json.dump(content_list, f, indent=4)
     
     return content_list
@@ -281,7 +281,7 @@ def dump_playlist_data():
     for index, content in enumerate(dbcontent):
         
         if "--dump" in sys.argv:
-            with open("playlist_data.yaml", "w", encoding="utf-8") as f:
+            with open("./data/playlist_data.yaml", "w", encoding="utf-8") as f:
                 dump_object(content, file=f, skip_recurse = {"imag", "MixerParams", "Cues", "created_at", "updated_at", "MyTagIDs", "MyTagNames", "MyTags", "Artist", "Genre", "Key", "Album", "Analysed", "Parent"})
 
         json_formatted = {
@@ -294,7 +294,7 @@ def dump_playlist_data():
 
         content_list.append(json_formatted)
 
-    with open("playlist_data.json", "w") as f:
+    with open("./data/playlist_data.json", "w") as f:
         json.dump(content_list, f, indent=4)
     
     return content_list
@@ -416,7 +416,7 @@ if __name__ == "__main__":
     best_songs = deduplicate(content_list, non_unique_indexes)
 
     if "--dump" in sys.argv:
-        with open("best_ids.json", "w", encoding="utf-8") as f:
+        with open("./data/best_ids.json", "w", encoding="utf-8") as f:
             json.dump(best_songs, f, indent=4)
                 
     # print(best_songs)
@@ -440,7 +440,7 @@ if __name__ == "__main__":
 
     #Get destination folder from config
 
-    with open("config.json", "r") as f:
+    with open("./data/config.json", "r") as f:
         config = json.load(f)
     
     backup_folder = config.get("move_files_folder")
