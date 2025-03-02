@@ -4,6 +4,8 @@ import os
 import shutil
 import sys
 import warnings
+import itertools
+import inspect
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -13,13 +15,6 @@ from pyrekordbox import Rekordbox6Database, show_config
 from pyrekordbox.db6 import tables
 
 from sqlalchemy.exc import SQLAlchemyError
-
-
-# Set up logging configuration
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-show_config()
 
 def remove_songs(idlist):
     if not idlist:
@@ -126,7 +121,7 @@ def move_files_and_export_to_json(file_paths, destination_folder, json_file_path
 
 
 # Replace all occurrences of a song in a playlist with another song
-def replace_songs(best_songs: List[Dict[int, List[int]]]):
+def replace_songs(best_songs: Dict[int, List[int]]):
     if not best_songs:
         logger.warning("No song replacements provided. Exiting function.")
         return
@@ -140,18 +135,17 @@ def replace_songs(best_songs: List[Dict[int, List[int]]]):
         # Track the total number of rows updated
         total_rows_updated = 0
 
-        for mapping in best_songs:
-            for new_song_id, old_song_ids in mapping.items():
-                # Convert new_song_id to integer
-                new_song_id = int(new_song_id)
+        for new_song_id, old_song_ids in best_songs.items():
+            # Convert new_song_id to integer
+            new_song_id = int(new_song_id)
 
-                # Update rows where ContentID is in the list of old_song_ids
-                rows_updated = db.query(tables.DjmdSongPlaylist)\
-                    .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
-                    .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
+            # Update rows where ContentID is in the list of old_song_ids
+            rows_updated = db.query(tables.DjmdSongPlaylist)\
+                .filter(tables.DjmdSongPlaylist.ContentID.in_(old_song_ids))\
+                .update({tables.DjmdSongPlaylist.ContentID: new_song_id}, synchronize_session=False)
 
-                # Update the total count
-                total_rows_updated += rows_updated
+            # Update the total count
+            total_rows_updated += rows_updated
 
         # Commit the changes after all updates
         db.commit()
@@ -410,7 +404,7 @@ def dump_playlist_data(yaml_file_path: str = "./data/playlist_data.yaml", json_f
     return content_list
 
 
-def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[List[int]]) -> List[Dict[int, List[int]]]:
+def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[List[int]]) -> Dict[int, List[int]]:
     """
     Deduplicates a list of songs based on multiple criteria: bitrate, imported from device, created date, and index.
 
@@ -476,12 +470,20 @@ def deduplicate(content_list: List[Dict[str, Any]], non_unique_indexes: List[Lis
     # Clean up the data by removing duplicates from the lists
     cleaned_data = {key: [v for v in values if v != key] for key, values in best_songs.items()}
 
-    if "--dump" in sys.argv:
-        print(cleaned_data)
-
     return cleaned_data
 
 if __name__ == "__main__":
+    # Set up logging configuration
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    # Output config
+    show_config()
+
+    # If dumping, create data folder if it doesn't exist
+    if "--dump" in sys.argv:
+        Path("./data").mkdir(parents=True, exist_ok=True)
+
     # Retrieve song data and output to JSON
     print("Retrieving song data...")
     content_list = dump_song_data()
@@ -509,7 +511,7 @@ if __name__ == "__main__":
     replace_songs(best_songs)
 
     # Create a list of IDs for songs to remove
-    remove_songs_list = [v for d in best_songs for key, values in d.items() for v in values]
+    remove_songs_list = [item for sublist in best_songs.values() for item in sublist]
 
     # Dump the list of songs to remove if requested
     if "--dump" in sys.argv:
@@ -519,7 +521,7 @@ if __name__ == "__main__":
     filepaths = get_filepaths(remove_songs_list)
 
     # Load backup folder configuration
-    with open("./data/config.json", "r") as f:
+    with open("./config.json", "r") as f:
         config = json.load(f)
     
     backup_folder = config.get("move_files_folder")
