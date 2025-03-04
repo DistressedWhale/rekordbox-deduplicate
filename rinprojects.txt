@@ -1,3 +1,5 @@
+within-playlist deduplicate
+
 - breakdown of songs and locations
 - move all song objects and files to one location
 
